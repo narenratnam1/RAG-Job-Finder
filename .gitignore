@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# ChromaDB
+chroma_db/
+*.db
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Frontend
+frontend/node_modules/
+frontend/build/
+frontend/.env.local
+frontend/.env.production.local
+
+# Test files
+.pytest_cache/
+.coverage
+htmlcov/
+
+# MCP
+.cursor/
