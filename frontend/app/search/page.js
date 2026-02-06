@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Search, Users, Award, TrendingUp, FileText, Sparkles, Eye, Download, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { searchCandidates } from '../../lib/api'
+import { searchCandidates, API_BASE_URL } from '../../lib/api'
 
 export default function SearchPage() {
   const [jobDescription, setJobDescription] = useState('')
@@ -79,8 +79,8 @@ export default function SearchPage() {
   const handleDownload = (candidate) => {
     // Use download_url from backend if available, otherwise construct it
     const downloadUrl = candidate.download_url 
-      ? `http://localhost:8000${candidate.download_url}`
-      : `http://localhost:8000/resumes/${encodeURIComponent(candidate.filename)}`
+      ? `${API_BASE_URL}${candidate.download_url}`
+      : `${API_BASE_URL}/resumes/${encodeURIComponent(candidate.filename)}`
     
     window.open(downloadUrl, '_blank')
     toast.success(`Downloading ${candidate.filename}`)
@@ -385,7 +385,7 @@ export default function SearchPage() {
                 <div className="flex-1 border-2 border-gray-300 rounded-lg overflow-hidden bg-gray-100">
                   {previewCandidate.download_url ? (
                     <iframe
-                      src={`http://localhost:8000${previewCandidate.download_url}`}
+                      src={`${API_BASE_URL}${previewCandidate.download_url}`}
                       className="w-full h-full min-h-[600px]"
                       title="Resume PDF Preview"
                     />

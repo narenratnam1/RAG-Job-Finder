@@ -1,6 +1,14 @@
 import axios from 'axios'
 
-const API_BASE_URL = 'http://localhost:8000'
+// Use environment variable for production, fallback to localhost for development
+// NEXT_PUBLIC_API_URL should be set in Vercel/Netlify environment variables
+const getApiBaseUrl = () => {
+  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+  // Remove trailing slash to avoid double slashes
+  return url.endsWith('/') ? url.slice(0, -1) : url
+}
+
+const API_BASE_URL = getApiBaseUrl()
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -8,6 +16,9 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 })
+
+// Export API_BASE_URL so components can access it
+export { API_BASE_URL }
 
 /**
  * Upload a PDF file to the backend

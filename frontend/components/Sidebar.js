@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { Upload, FileSearch, Wand2, Briefcase, Users } from 'lucide-react'
+import { API_BASE_URL } from '../lib/api'
 
 const navigation = [
   { name: 'Candidate Upload', href: '/', icon: Upload },
@@ -58,7 +59,9 @@ export default function Sidebar() {
           <p className="font-semibold mb-1">API Status</p>
           <div className="flex items-center space-x-2">
             <div className="h-2 w-2 bg-green-400 rounded-full animate-pulse"></div>
-            <span>Connected to localhost:8000</span>
+            <span className="truncate">
+              {API_BASE_URL.replace('http://', '').replace('https://', '')}
+            </span>
           </div>
         </div>
       </div>
