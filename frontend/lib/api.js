@@ -51,6 +51,25 @@ export async function screenCandidate(jobDescription, resumeFilename) {
 }
 
 /**
+ * Search and rank top candidates for a job description
+ * @param {string} jobDescription - The job description
+ * @returns {Promise<Object>} Top 7 ranked candidates with scores
+ */
+export async function searchCandidates(jobDescription) {
+  try {
+    const formData = new FormData()
+    formData.append('job_description', jobDescription)
+    
+    const response = await axios.post(`${API_BASE_URL}/search_candidates`, formData)
+    return response.data
+  } catch (error) {
+    const errorMessage = error.response?.data?.detail || error.message || 'Failed to search candidates'
+    console.error('Search candidates error:', error.response?.data || error)
+    throw new Error(errorMessage)
+  }
+}
+
+/**
  * Get list of saved resumes from library
  * @returns {Promise<Object>} Response with list of resumes
  */

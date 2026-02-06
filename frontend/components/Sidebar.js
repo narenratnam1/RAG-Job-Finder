@@ -2,10 +2,11 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Upload, FileSearch, Wand2, Briefcase } from 'lucide-react'
+import { Upload, FileSearch, Wand2, Briefcase, Users } from 'lucide-react'
 
 const navigation = [
   { name: 'Candidate Upload', href: '/', icon: Upload },
+  { name: 'Candidate Search', href: '/search', icon: Users },
   { name: 'Resume Screener', href: '/screener', icon: FileSearch },
   { name: 'AI Resume Tailor', href: '/tailor', icon: Wand2 },
 ]

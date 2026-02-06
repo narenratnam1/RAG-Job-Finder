@@ -9,6 +9,7 @@ from typing import List, Dict, Any
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.services.vector_store import VectorService
@@ -55,6 +56,10 @@ pdf_service = PDFService()
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 logger.info(f"✓ Uploads directory: {UPLOADS_DIR}")
+
+# Mount uploads directory as static files for PDF viewing
+app.mount("/static/resumes", StaticFiles(directory=UPLOADS_DIR), name="resumes")
+logger.info(f"✓ Mounted static files: /static/resumes → {UPLOADS_DIR}")
 
 
 # Pydantic models for request validation
@@ -212,10 +217,15 @@ async def upload_pdf(file: UploadFile = File(...)):
         texts: List[str] = []
         metadatas: List[dict] = []
         
+        # IMPORTANT: Store only the original filename (basename), NOT temp paths
+        original_filename = os.path.basename(file.filename)
+        
         for chunk in chunks:
             texts.append(chunk.page_content)
+            # Store clean filename in metadata, not temp paths
             metadatas.append({
-                "source": file.filename,
+                "source": original_filename,  # Clean filename only
+                "filename": original_filename,  # Redundant but explicit
                 "page": chunk.metadata.get("page", 0),
                 **chunk.metadata
             })
@@ -224,10 +234,10 @@ async def upload_pdf(file: UploadFile = File(...)):
         vector_service.add_documents(texts=texts, metadatas=metadatas)
         
         # Save a copy to uploads directory for reuse
-        saved_path = os.path.join(UPLOADS_DIR, file.filename)
+        saved_path = os.path.join(UPLOADS_DIR, original_filename)
         with open(saved_path, 'wb') as f:
             f.write(content)
-        logger.info(f"✓ Saved resume to library: {file.filename}")
+        logger.info(f"✓ Saved resume to library: {original_filename}")
         
         return {
             "status": "success",
@@ -274,6 +284,68 @@ async def list_resumes():
         raise HTTPException(
             status_code=500,
             detail=f"Error listing resumes: {str(e)}"
+        )
+
+
+@app.get("/resumes/{filename}")
+async def download_resume(filename: str):
+    """
+    Download a resume file from the library
+    
+    Args:
+        filename: Name of the resume file to download
+    
+    Returns:
+        FileResponse: The resume PDF file
+    """
+    try:
+        # Security: Only allow filenames without path traversal
+        if '..' in filename or '/' in filename or '\\' in filename:
+            logger.warning(f"⚠️  Invalid filename attempt: {filename}")
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid filename - path traversal detected"
+            )
+        
+        # Build file path
+        file_path = os.path.join(UPLOADS_DIR, filename)
+        
+        # DEBUG: Log the exact path being looked for
+        logger.info(f"🔍 Download request for: '{filename}'")
+        logger.info(f"🔍 Looking in UPLOADS_DIR: {UPLOADS_DIR}")
+        logger.info(f"🔍 Full path to check: {file_path}")
+        logger.info(f"🔍 File exists: {os.path.exists(file_path)}")
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            # List available files for debugging
+            try:
+                available_files = [f for f in os.listdir(UPLOADS_DIR) if f.endswith('.pdf')]
+                logger.error(f"❌ File not found: {filename}")
+                logger.error(f"📁 Available files in uploads: {available_files}")
+            except Exception as list_error:
+                logger.error(f"❌ Could not list files in uploads: {list_error}")
+            
+            raise HTTPException(
+                status_code=404,
+                detail=f"Resume '{filename}' not found in library. Please ensure the file has been uploaded."
+            )
+        
+        logger.info(f"✓ Serving resume file: {filename}")
+        
+        return FileResponse(
+            path=file_path,
+            filename=filename,
+            media_type="application/pdf"
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error serving resume: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error serving resume: {str(e)}"
         )
 
 
@@ -616,6 +688,238 @@ async def generate_pdf(request: GeneratePDFRequest):
         )
 
 
+@app.post("/search_candidates")
+async def search_candidates(job_description: str = Form(...)):
+    """
+    Search and rank candidates using RAG + AI reranking
+    
+    Args:
+        job_description: The job description to search for matching candidates
+    
+    Returns:
+        JSON list of top 7 ranked candidates with scores and reasoning
+    """
+    try:
+        # Load environment variables
+        from dotenv import load_dotenv
+        load_dotenv()
+        
+        # Step 1: Search vector store for top 10 matches
+        results = vector_service.search(query=job_description, k=10)
+        
+        if not results:
+            return {
+                "status": "success",
+                "count": 0,
+                "candidates": [],
+                "message": "No candidates found in the database. Please upload resumes first."
+            }
+        
+        logger.info(f"✓ Found {len(results)} initial candidates from vector search")
+        
+        # Step 2: Prepare candidate data for AI reranking
+        candidates_text = []
+        candidates_metadata = []  # Track metadata for each candidate
+        
+        for i, result in enumerate(results, 1):
+            # SAFETY FIX: Extract clean filename from metadata (remove any path components)
+            # Handle both 'source' and 'filename' fields (redundant storage for safety)
+            source = result['metadata'].get('source', result['metadata'].get('filename', 'Unknown'))
+            clean_filename = os.path.basename(source) if source != 'Unknown' else 'Unknown'
+            
+            logger.info(f"Processing candidate #{i}: source='{source}' → clean_filename='{clean_filename}'")
+            
+            candidate_info = f"""
+Candidate #{i}
+Filename: {clean_filename}
+Resume Content:
+{result['text']}
+---"""
+            candidates_text.append(candidate_info)
+            candidates_metadata.append({
+                'filename': clean_filename,
+                'text': result['text'][:500]  # Store snippet for preview
+            })
+        
+        combined_candidates = "\n".join(candidates_text)
+        
+        # Step 3: Check OpenAI API key
+        api_key = os.getenv("OPENAI_API_KEY")
+        
+        if not api_key or api_key == "your_openai_api_key_here":
+            # Return demo response if no API key
+            demo_candidates = []
+            for i, result in enumerate(results[:7], 1):
+                # SAFETY FIX: Extract clean filename
+                source = result['metadata'].get('source', result['metadata'].get('filename', 'Unknown'))
+                clean_filename = os.path.basename(source) if source != 'Unknown' else 'Unknown'
+                
+                logger.info(f"Demo mode - candidate #{i}: source='{source}' → clean_filename='{clean_filename}'")
+                
+                # Try to extract a name from filename (remove .pdf, replace _ with space)
+                demo_name = clean_filename.replace('.pdf', '').replace('_', ' ').replace('-', ' ').title() if clean_filename != 'Unknown' else clean_filename
+                
+                demo_candidates.append({
+                    "rank": i,
+                    "filename": clean_filename,
+                    "name": demo_name,
+                    "score": max(50, 95 - (i * 5)),  # Demo scores
+                    "reasoning": f"Demo Mode: Add OPENAI_API_KEY to enable AI-powered ranking. This is candidate #{i} from vector search.",
+                    "download_url": f"/static/resumes/{clean_filename}"
+                })
+            
+            return {
+                "status": "success",
+                "count": len(demo_candidates),
+                "candidates": demo_candidates,
+                "message": "Demo Mode - Add OpenAI API key for AI-powered reranking"
+            }
+        
+        # Step 4: Use AI to rerank candidates
+        from langchain_openai import ChatOpenAI
+        from langchain_core.messages import HumanMessage, SystemMessage
+        import json
+        
+        llm = ChatOpenAI(
+            model="gpt-3.5-turbo",
+            temperature=0.3,
+            api_key=api_key
+        )
+        
+        # Create reranking prompt
+        system_prompt = """You are a Senior Technical Recruiter and ATS expert. 
+Your task is to evaluate candidates and select the top 7 best matches for the job.
+
+CRITICAL NAME EXTRACTION RULES:
+1. Analyze the resume text carefully to identify the candidate's FULL NAME
+2. The name is usually at the top of the resume or in a header section
+3. If you CANNOT find a clear name in the text, you MUST return exactly "Unknown Candidate"
+4. DO NOT invent or fabricate names like "John Doe", "Jane Smith", etc.
+5. DO NOT use the filename as the name - return "Unknown Candidate" instead
+
+You MUST respond with ONLY a valid JSON array in this exact format (no additional text):
+[
+  {
+    "filename": "candidate_resume.pdf",
+    "name": "Sarah Johnson",
+    "score": 95,
+    "reasoning": "Excellent match because..."
+  },
+  ...
+]
+
+If no name found in resume, use:
+{
+  "filename": "candidate_resume.pdf",
+  "name": "Unknown Candidate",
+  "score": 85,
+  "reasoning": "Strong skills match..."
+}
+
+Evaluation Criteria:
+- Skills match (technical and soft skills)
+- Experience level alignment
+- Education requirements
+- Industry background
+- Achievement relevance
+- Cultural fit indicators
+
+Score Guidelines:
+- 90-100: Exceptional match, exceeds requirements
+- 80-89: Strong match, meets all key requirements
+- 70-79: Good match, meets most requirements
+- 60-69: Adequate match, meets core requirements
+- 50-59: Weak match, missing key skills
+
+Return EXACTLY 7 candidates ranked from best to worst. If fewer than 7 candidates are available, return all available candidates.
+Each candidate MUST have the "name" field (real name from resume or "Unknown Candidate" - NO invented names)."""
+        
+        user_prompt = f"""Job Description:
+{job_description}
+
+Candidates to Evaluate:
+{combined_candidates}
+
+Analyze these candidates, select the top 7 best matches, and rank them from best to worst. 
+Return ONLY the JSON array with no additional text."""
+        
+        # Call the LLM
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt)
+        ]
+        
+        response = llm.invoke(messages)
+        
+        # Parse JSON response
+        try:
+            # Clean the response
+            content = response.content.strip()
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+            
+            ranked_candidates = json.loads(content)
+            
+            # Add rank numbers and download URLs
+            for i, candidate in enumerate(ranked_candidates, 1):
+                candidate['rank'] = i
+                # Add download URL for frontend
+                filename = candidate.get('filename', 'unknown.pdf')
+                candidate['download_url'] = f"/static/resumes/{filename}"
+            
+            logger.info(f"✓ AI reranked and selected top {len(ranked_candidates)} candidates")
+            
+            return {
+                "status": "success",
+                "count": len(ranked_candidates),
+                "candidates": ranked_candidates
+            }
+        
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse AI response as JSON: {e}")
+            logger.error(f"Raw response: {response.content}")
+            
+            # Return fallback with original search results
+            fallback_candidates = []
+            for i, result in enumerate(results[:7], 1):
+                # SAFETY FIX: Extract clean filename
+                source = result['metadata'].get('source', result['metadata'].get('filename', 'Unknown'))
+                clean_filename = os.path.basename(source) if source != 'Unknown' else 'Unknown'
+                
+                logger.info(f"Fallback mode - candidate #{i}: source='{source}' → clean_filename='{clean_filename}'")
+                
+                # Try to extract a name from filename (remove .pdf, replace _ with space)
+                fallback_name = clean_filename.replace('.pdf', '').replace('_', ' ').replace('-', ' ').title() if clean_filename != 'Unknown' else clean_filename
+                
+                fallback_candidates.append({
+                    "rank": i,
+                    "filename": clean_filename,
+                    "name": fallback_name,
+                    "score": max(50, int((1 - result['distance']) * 100)),
+                    "reasoning": "AI ranking unavailable. Showing vector similarity results.",
+                    "download_url": f"/static/resumes/{clean_filename}"
+                })
+            
+            return {
+                "status": "success",
+                "count": len(fallback_candidates),
+                "candidates": fallback_candidates,
+                "message": "Using fallback ranking (AI parsing failed)"
+            }
+    
+    except Exception as e:
+        logger.error(f"Error searching candidates: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error searching candidates: {str(e)}"
+        )
+
+
 @app.get("/")
 async def root():
     """Root endpoint"""
@@ -625,6 +929,8 @@ async def root():
         "endpoints": {
             "upload": "POST /upload - Upload PDF files and save to library",
             "resumes": "GET /resumes - List all saved resumes in library",
+            "download_resume": "GET /resumes/{filename} - Download a specific resume PDF",
+            "search_candidates": "POST /search_candidates - Search and rank top candidates for a job",
             "consult": "POST /consult?query=your_question - Query the policy database",
             "screen_candidate": "POST /screen_candidate?job_description=... - Screen candidate against job description",
             "tailor_resume": "POST /tailor_resume - Tailor resume (use saved or upload new, returns preview text)",
