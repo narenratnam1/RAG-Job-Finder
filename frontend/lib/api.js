@@ -3,12 +3,28 @@ import axios from 'axios'
 // Use environment variable for production, fallback to localhost for development
 // NEXT_PUBLIC_API_URL should be set in Vercel/Netlify environment variables
 const getApiBaseUrl = () => {
-  const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+  let apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+  
+  // If we are in production (not localhost), force HTTPS
+  if (!apiUrl.includes('localhost') && !apiUrl.startsWith('https://')) {
+    apiUrl = apiUrl.replace('http://', 'https://')
+    // Ensure it starts with https://
+    if (!apiUrl.startsWith('https://')) {
+      apiUrl = 'https://' + apiUrl
+    }
+  }
+  
   // Remove trailing slash to avoid double slashes
-  return url.endsWith('/') ? url.slice(0, -1) : url
+  return apiUrl.replace(/\/$/, '')
 }
 
 const API_BASE_URL = getApiBaseUrl()
+
+// Log API URL for debugging (only in browser)
+if (typeof window !== 'undefined') {
+  console.log('🔗 API Base URL:', API_BASE_URL)
+  console.log('🌍 Environment:', API_BASE_URL.includes('localhost') ? 'Development' : 'Production')
+}
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -28,14 +44,21 @@ export { API_BASE_URL }
 export async function uploadPDF(file) {
   const formData = new FormData()
   formData.append('file', file)
+  
+  const uploadUrl = `${API_BASE_URL}/upload`
+  console.log('📤 Uploading to:', uploadUrl)
+  console.log('📄 File:', file.name, `(${(file.size / 1024).toFixed(2)} KB)`)
 
   try {
     // Don't set Content-Type header - let browser set it with boundary
-    const response = await axios.post(`${API_BASE_URL}/upload`, formData)
+    const response = await axios.post(uploadUrl, formData)
+    console.log('✅ Upload successful:', response.data)
     return response.data
   } catch (error) {
     const errorMessage = error.response?.data?.detail || error.message || 'Failed to upload PDF'
-    console.error('Upload PDF error:', error.response?.data || error)
+    console.error('❌ Upload PDF error:', error.response?.data || error)
+    console.error('❌ Error status:', error.response?.status)
+    console.error('❌ Error URL:', uploadUrl)
     throw new Error(errorMessage)
   }
 }
@@ -47,16 +70,20 @@ export async function uploadPDF(file) {
  * @returns {Promise<Object>} Screening results with score and analysis
  */
 export async function screenCandidate(jobDescription, resumeFilename) {
+  const screenUrl = `${API_BASE_URL}/screen_candidate`
+  console.log('🔍 Screening candidate at:', screenUrl)
+  
   try {
     const formData = new FormData()
     formData.append('job_description', jobDescription)
     formData.append('resume_filename', resumeFilename)
     
-    const response = await axios.post(`${API_BASE_URL}/screen_candidate`, formData)
+    const response = await axios.post(screenUrl, formData)
+    console.log('✅ Screening successful')
     return response.data
   } catch (error) {
     const errorMessage = error.response?.data?.detail || error.message || 'Failed to screen candidate'
-    console.error('Screen candidate error:', error.response?.data || error)
+    console.error('❌ Screen candidate error:', error.response?.data || error)
     throw new Error(errorMessage)
   }
 }
@@ -67,15 +94,19 @@ export async function screenCandidate(jobDescription, resumeFilename) {
  * @returns {Promise<Object>} Top 7 ranked candidates with scores
  */
 export async function searchCandidates(jobDescription) {
+  const searchUrl = `${API_BASE_URL}/search_candidates`
+  console.log('🔎 Searching candidates at:', searchUrl)
+  
   try {
     const formData = new FormData()
     formData.append('job_description', jobDescription)
     
-    const response = await axios.post(`${API_BASE_URL}/search_candidates`, formData)
+    const response = await axios.post(searchUrl, formData)
+    console.log('✅ Search successful:', response.data?.count, 'candidates found')
     return response.data
   } catch (error) {
     const errorMessage = error.response?.data?.detail || error.message || 'Failed to search candidates'
-    console.error('Search candidates error:', error.response?.data || error)
+    console.error('❌ Search candidates error:', error.response?.data || error)
     throw new Error(errorMessage)
   }
 }
