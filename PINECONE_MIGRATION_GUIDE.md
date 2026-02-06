@@ -42,7 +42,7 @@ Make sure your `.env` file has:
 
 ```bash
 # Pinecone Configuration
-PINECONE_API_KEY=pcsk_3HB2vQ_H6D1C38gSrmT8rBR5KcjxzvjreXHEUeFZaCEFKaX47HXxNGNcnFKogUpyHBQft9
+PINECONE_API_KEY=your_pinecone_api_key_here
 PINECONE_INDEX_NAME=resume-index
 ```
 

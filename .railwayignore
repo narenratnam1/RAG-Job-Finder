@@ -1,0 +1,49 @@
+# Don't upload these to Railway (speeds up deployment)
+
+# Frontend (deploy separately)
+frontend/
+
+# Documentation
+*.md
+!README.md
+
+# Development files
+.git/
+.cursor/
+.vscode/
+.idea/
+
+# Test files
+tests/
+.pytest_cache/
+.coverage
+
+# Local database (use Pinecone in production)
+chroma_db/
+
+# Temporary files
+*.log
+*.tmp
+temp/
+tmp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Example files
+.env.example
+setup_env.sh
+verify_setup.py
+test_imports.py
+
+# Scripts (not needed in production)
+run.sh
+start_all.sh
+start.py
