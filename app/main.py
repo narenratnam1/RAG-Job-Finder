@@ -34,7 +34,7 @@ except ImportError as e:
 app = FastAPI(
     title="Agentic RAG API",
     version="1.0.0",
-    description="Agentic RAG API with ChromaDB, LangChain, and MCP"
+    description="Agentic RAG API with Pinecone, LangChain, and MCP"
 )
 
 # Configure CORS
