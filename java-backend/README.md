@@ -8,16 +8,26 @@ Spring Boot **3.4** + **Spring AI 1.0** with:
 ## Prerequisites
 
 - **JDK 17+**
-- **Maven 3.8+**
+- **Maven not required** if you use the included **`./mvnw`** wrapper (downloads Maven on first run).  
+  Or install Maven: `brew install maven` (macOS), then use `mvn` instead of `./mvnw`.
 - Environment variables: `OPENAI_API_KEY`, `PINECONE_API_KEY`, and optionally `PINECONE_INDEX_NAME` (default `resume-index`)
 
 ## Run
 
+From the `java-backend` folder (use **real** keys, not the literal string `your-openai-key`):
+
 ```bash
 cd java-backend
-export OPENAI_API_KEY=...
-export PINECONE_API_KEY=...
+export OPENAI_API_KEY="paste-from-your-.env"
+export PINECONE_API_KEY="paste-from-your-.env"
 export PINECONE_INDEX_NAME=resume-index   # optional
+chmod +x mvnw    # first time only, if needed
+./mvnw spring-boot:run
+```
+
+If `mvn` is on your PATH (e.g. after `brew install maven`):
+
+```bash
 mvn spring-boot:run
 ```
 
