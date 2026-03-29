@@ -46,13 +46,22 @@ echo "   Backend PID: $BACKEND_PID"
 echo "   Backend URL: http://localhost:8000"
 echo ""
 
-# Wait for backend to be ready
+# Wait for backend to be ready (Pinecone init can take a few seconds)
 echo "⏳ Waiting for backend to be ready..."
-sleep 3
+sleep 5
 
-# Check if backend is running
-if ! curl -s http://localhost:8000/health > /dev/null; then
-    echo "❌ Backend failed to start"
+# Check if backend is running (retry — Pinecone/OpenAI init can be slow)
+BACKEND_OK=0
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+        BACKEND_OK=1
+        break
+    fi
+    sleep 1
+done
+if [ "$BACKEND_OK" -ne 1 ]; then
+    echo "❌ Backend failed to become ready on http://localhost:8000/health"
+    echo "   Check .env (OPENAI_API_KEY, PINECONE_*), terminal output above, and run: python start.py"
     kill $BACKEND_PID 2>/dev/null
     exit 1
 fi
@@ -64,9 +73,9 @@ echo ""
 echo "🟢 Starting Frontend Server (Port 3000)..."
 echo ""
 
-# Start frontend
+# Start frontend (Next.js: use `dev`, not `start` — `npm start` runs `next start` and needs `next build` first)
 cd "$SCRIPT_DIR/frontend"
-npm start &
+BROWSER=none npm run dev &
 FRONTEND_PID=$!
 
 echo "   Frontend PID: $FRONTEND_PID"

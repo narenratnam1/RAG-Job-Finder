@@ -118,9 +118,9 @@ This starts both backend (port 8000) and frontend (port 3000) automatically!
    npm install
    ```
 
-2. **Start development server:**
+2. **Start development server** (Next.js — use `dev`, not `start`; `npm start` runs production `next start` and requires `npm run build` first):
    ```bash
-   npm start
+   npm run dev
    ```
    
    Frontend available at: **http://localhost:3000**
