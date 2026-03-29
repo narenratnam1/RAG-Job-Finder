@@ -33,7 +33,14 @@ export default function LoginPage() {
     fetch('/api/auth/status')
       .then((r) => r.json())
       .then(setAuthStatus)
-      .catch(() => setAuthStatus({ oauthReady: false }))
+      .catch(() =>
+        setAuthStatus({
+          googleReady: false,
+          oauthReady: false,
+          skipAuth: false,
+          showGoogleSetup: true,
+        })
+      )
   }, [])
 
   useEffect(() => {
@@ -58,6 +65,11 @@ export default function LoginPage() {
   }
 
   const friendlyError = urlError ? errorMessages[urlError] || errorMessages.Default : null
+
+  const showSetup =
+    authStatus?.showGoogleSetup ??
+    (authStatus && !authStatus.skipAuth && !authStatus.googleReady)
+  const googleSignInDisabled = authStatus && !authStatus.googleReady && !authStatus.skipAuth
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 via-white to-primary-50">
@@ -87,7 +99,23 @@ export default function LoginPage() {
             </div>
           )}
 
-          {authStatus && !authStatus.oauthReady && (
+          {authStatus?.skipAuth && (
+            <div className="mb-4 p-4 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-950">
+              <p className="font-semibold mb-2">Local dev mode (no Google)</p>
+              <p className="mb-3">
+                <code className="bg-emerald-100 px-1 rounded">NEXT_PUBLIC_SKIP_AUTH=true</code> is set. You can open the app without signing in.
+              </p>
+              <button
+                type="button"
+                onClick={() => router.push('/')}
+                className="w-full py-2.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700"
+              >
+                Continue to dashboard
+              </button>
+            </div>
+          )}
+
+          {showSetup && (
             <div className="mb-4 p-4 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-950">
               <p className="font-semibold mb-2">Google sign-in is not configured yet</p>
               <ol className="list-decimal pl-4 space-y-1">
@@ -106,8 +134,11 @@ export default function LoginPage() {
                 <li>Restart <code className="bg-amber-100 px-1 rounded">npm run dev</code>.</li>
               </ol>
               <p className="mt-3 text-xs text-amber-900/80">
-                Local dev without Google: set <code className="bg-amber-100 px-1">NEXT_PUBLIC_SKIP_AUTH=true</code> in{' '}
-                <code className="bg-amber-100 px-1">.env.local</code> and restart (do not use in production).
+                <strong>Fastest:</strong> run <code className="bg-amber-100 px-1">./setup-local-env.sh</code> in the{' '}
+                <code className="bg-amber-100 px-1">frontend</code> folder (creates a skip-auth dev{' '}
+                <code className="bg-amber-100 px-1">.env.local</code>), or manually set{' '}
+                <code className="bg-amber-100 px-1">NEXT_PUBLIC_SKIP_AUTH=true</code> plus a real{' '}
+                <code className="bg-amber-100 px-1">NEXTAUTH_SECRET</code> — then restart <code className="bg-amber-100 px-1">npm run dev</code>.
               </p>
             </div>
           )}
@@ -115,7 +146,7 @@ export default function LoginPage() {
           <button
             type="button"
             onClick={handleGoogleSignIn}
-            disabled={authStatus && !authStatus.oauthReady}
+            disabled={googleSignInDisabled}
             className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-300 hover:border-primary-500 hover:bg-primary-50 text-gray-700 font-semibold py-3 px-6 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <svg className="h-6 w-6" viewBox="0 0 24 24" aria-hidden>
