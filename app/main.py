@@ -301,6 +301,7 @@ async def list_resumes():
         dict: List of resume filenames
     """
     try:
+        os.makedirs(UPLOADS_DIR, exist_ok=True)
         # Get all PDF files in uploads directory
         resumes = [f for f in os.listdir(UPLOADS_DIR) if f.endswith('.pdf')]
         resumes.sort()  # Sort alphabetically

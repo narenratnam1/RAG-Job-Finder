@@ -19,7 +19,10 @@ export default function ResumeSelect({ value, onChange, disabled = false }) {
       }
     } catch (error) {
       console.error('Failed to fetch resumes:', error)
-      toast.error('Failed to load resume library')
+      const msg = error?.message || 'Failed to load resume library'
+      const short =
+        msg.length > 220 ? `${msg.slice(0, 217)}…` : msg
+      toast.error(short, { duration: 8000 })
     } finally {
       setLoading(false)
     }

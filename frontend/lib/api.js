@@ -120,7 +120,16 @@ export async function getResumes() {
     const response = await api.get('/resumes')
     return response.data
   } catch (error) {
-    const errorMessage = error.response?.data?.detail || error.message || 'Failed to fetch resumes'
+    const detail = error.response?.data?.detail
+    const isNetwork =
+      error.code === 'ERR_NETWORK' ||
+      error.message?.includes('Network Error') ||
+      !error.response
+    const hint = isNetwork
+      ? `Cannot reach API at ${API_BASE_URL}. Start the Python backend: python start.py (from project root), or set NEXT_PUBLIC_API_URL in frontend/.env.local to your deployed API.`
+      : null
+    const errorMessage =
+      [detail || error.message || 'Failed to fetch resumes', hint].filter(Boolean).join(' ')
     console.error('Get resumes error:', error.response?.data || error)
     throw new Error(errorMessage)
   }
