@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: rag-api-java
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY}
+      embedding:
+        options:
+          model: text-embedding-3-small
+          dimensions: 1536
+    vectorstore:
+      pinecone:
+        api-key: ${PINECONE_API_KEY}
+        index-name: ${PINECONE_INDEX_NAME:resume-index}
+    mcp:
+      server:
+        name: AgentPolicy
+        version: 1.0.0
+        instructions: "RAG and candidate screening tools backed by Pinecone + OpenAI embeddings."
+        type: SYNC
+        capabilities:
+          tool: true
+          resource: false
+          prompt: false
+          completion: false
+
+server:
+  port: ${PORT:8080}
+
+logging:
+  level:
+    org.springframework.ai: INFO
+    com.ragjobfinder: DEBUG
