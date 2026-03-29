@@ -29,13 +29,17 @@ class Settings(BaseSettings):
     # API Keys
     OPENAI_API_KEY: Optional[str] = None
     HUGGINGFACE_API_KEY: Optional[str] = None
+    PINECONE_API_KEY: Optional[str] = None
+    PINECONE_INDEX_NAME: str = "resume-index"
     
     # File Upload Settings
     MAX_UPLOAD_SIZE: int = 10485760  # 10MB
     ALLOWED_EXTENSIONS: str = ".pdf,.txt,.doc,.docx"
     
-    # MCP Settings
+    # MCP Settings (frontend dev server URL — informational)
     MCP_SERVER_URL: str = "http://localhost:3000"
+    # Streamable HTTP MCP endpoint (this API’s FastMCP mount); used by the in-process MCP client
+    MCP_STREAMABLE_HTTP_URL: str = "http://127.0.0.1:8000/mcp/"
     
     class Config:
         env_file = ".env"

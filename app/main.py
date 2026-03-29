@@ -5,6 +5,7 @@ Main FastAPI application entry point with MCP integration
 import os
 import tempfile
 import logging
+from contextlib import asynccontextmanager
 from typing import List, Dict, Any
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +18,12 @@ from app.services.ingestor import process_pdf
 from app.services.pdf_generator import PDFService
 from app.services.resume_tailor import tailor_resume_with_ai
 from app.services.pdf_extractor import extract_text_from_pdf
+from app.services.mcp_client import (
+    call_mcp_tool,
+    call_tool_result_to_text,
+    list_mcp_tools,
+    register_mcp_http_client_app,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -30,22 +37,6 @@ except ImportError as e:
     logger.warning(f"⚠️  ChatOpenAI import failed: {e}. AI features will run in demo mode.")
     ChatOpenAI = None
 
-# Initialize FastAPI
-app = FastAPI(
-    title="Agentic RAG API",
-    version="1.0.0",
-    description="Agentic RAG API with Pinecone, LangChain, and MCP"
-)
-
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Initialize VectorService (singleton)
 vector_service = VectorService()
 
@@ -57,10 +48,6 @@ UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 logger.info(f"✓ Uploads directory: {UPLOADS_DIR}")
 
-# Mount uploads directory as static files for PDF viewing
-app.mount("/static/resumes", StaticFiles(directory=UPLOADS_DIR), name="resumes")
-logger.info(f"✓ Mounted static files: /static/resumes → {UPLOADS_DIR}")
-
 
 # Pydantic models for request validation
 class TailorResumeRequest(BaseModel):
@@ -71,6 +58,12 @@ class TailorResumeRequest(BaseModel):
 class GeneratePDFRequest(BaseModel):
     """Request model for PDF generation"""
     content: str
+
+
+class McpToolCallRequest(BaseModel):
+    """Call an MCP tool by name (via in-process Streamable HTTP client)."""
+    name: str
+    arguments: Dict[str, Any] | None = None
 
 
 # Helper function for candidate screening (used by both MCP tool and HTTP endpoint)
@@ -119,7 +112,8 @@ TASK: Compare the resume parts above against this Job Description:
 # Initialize FastMCP (optional - for MCP tool integration)
 try:
     from mcp.server.fastmcp import FastMCP
-    mcp = FastMCP("AgentPolicy")
+    # Serve Streamable HTTP at the mount root (full URL is /mcp/ when app.mount("/mcp", ...) is used)
+    mcp = FastMCP("AgentPolicy", streamable_http_path="/")
     
     @mcp.tool()
     def consult_policy_db(query: str) -> str:
@@ -181,6 +175,45 @@ try:
 except ImportError:
     print("⚠️  MCP not available - running without MCP tools")
     mcp = None
+
+# Streamable HTTP ASGI app + session manager (client connects to same process at /mcp)
+mcp_http_app = mcp.streamable_http_app() if mcp else None
+
+
+@asynccontextmanager
+async def app_lifespan(_app: FastAPI):
+    if mcp is not None:
+        async with mcp.session_manager.run():
+            yield
+    else:
+        yield
+
+
+app = FastAPI(
+    title="Agentic RAG API",
+    version="1.0.0",
+    description="Agentic RAG API with Pinecone, LangChain, and MCP",
+    lifespan=app_lifespan,
+)
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount uploads directory as static files for PDF viewing
+app.mount("/static/resumes", StaticFiles(directory=UPLOADS_DIR), name="resumes")
+logger.info(f"✓ Mounted static files: /static/resumes → {UPLOADS_DIR}")
+
+if mcp_http_app is not None:
+    app.mount("/mcp", mcp_http_app)
+    logger.info("✓ Mounted MCP Streamable HTTP at /mcp")
+
+register_mcp_http_client_app(app)
 
 
 @app.post("/upload")
@@ -920,6 +953,37 @@ Return ONLY the JSON array with no additional text."""
         )
 
 
+@app.get("/api/mcp/tools")
+async def api_mcp_list_tools():
+    """List tools from the MCP server using the Streamable HTTP client."""
+    if mcp is None:
+        raise HTTPException(status_code=503, detail="MCP not configured")
+    try:
+        result = await list_mcp_tools()
+        return {"tools": [t.model_dump() for t in result.tools]}
+    except Exception as e:
+        logger.exception("MCP list_tools failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/mcp/call")
+async def api_mcp_call_tool(body: McpToolCallRequest):
+    """Invoke a tool through the MCP client (same tools as FastMCP, over /mcp)."""
+    if mcp is None:
+        raise HTTPException(status_code=503, detail="MCP not configured")
+    try:
+        raw = await call_mcp_tool(body.name, body.arguments)
+        return {
+            "name": body.name,
+            "isError": raw.isError,
+            "content": [c.model_dump() for c in raw.content],
+            "text": call_tool_result_to_text(raw),
+        }
+    except Exception as e:
+        logger.exception("MCP call_tool failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @app.get("/")
 async def root():
     """Root endpoint"""
@@ -935,10 +999,13 @@ async def root():
             "screen_candidate": "POST /screen_candidate?job_description=... - Screen candidate against job description",
             "tailor_resume": "POST /tailor_resume - Tailor resume (use saved or upload new, returns preview text)",
             "generate_pdf": "POST /generate_pdf - Generate PDF from tailored text",
+            "mcp_tools_http": "GET /api/mcp/tools - List MCP tools via client",
+            "mcp_call": "POST /api/mcp/call - Call an MCP tool via client",
             "docs": "GET /docs - Interactive API documentation",
             "health": "GET /health - Health check"
         },
-        "mcp_tools": "consult_policy_db, screen_candidate, get_screener_instructions" if mcp else "MCP not configured"
+        "mcp_tools": "consult_policy_db, screen_candidate, get_screener_instructions" if mcp else "MCP not configured",
+        "mcp_streamable_http": "/mcp" if mcp else None,
     }
 
 
