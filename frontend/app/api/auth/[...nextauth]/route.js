@@ -8,6 +8,8 @@ const ADMIN_EMAILS = [
 ]
 
 export const authOptions = {
+  // Required for NextAuth behind localhost / some hosts (avoids "Untrusted host" / callback issues)
+  trustHost: true,
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID,

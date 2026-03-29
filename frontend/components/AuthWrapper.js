@@ -5,12 +5,18 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 import { Briefcase } from 'lucide-react'
 
+/** Set NEXT_PUBLIC_SKIP_AUTH=true in .env.local to use the app without Google (local dev only). */
+const skipAuth = process.env.NEXT_PUBLIC_SKIP_AUTH === 'true'
+
 export function AuthWrapper({ children }) {
   const { data: session, status } = useSession()
   const pathname = usePathname()
   const router = useRouter()
 
   useEffect(() => {
+    if (skipAuth) {
+      return
+    }
     // Allow access to login page without authentication
     if (pathname === '/login') {
       return
@@ -21,6 +27,10 @@ export function AuthWrapper({ children }) {
       router.push('/login')
     }
   }, [status, pathname, router])
+
+  if (skipAuth) {
+    return children
+  }
 
   // Show loading spinner while checking authentication
   if (status === 'loading') {
