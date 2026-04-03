@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Upload, FileSearch, Wand2, Briefcase, Users, Shield, LogOut } from 'lucide-react'
+import { Upload, FileSearch, Wand2, Briefcase, Users, Shield, LogOut, MessageCircle } from 'lucide-react'
 import { useSession, signOut } from 'next-auth/react'
 import { API_BASE_URL } from '../lib/api'
 
@@ -11,6 +11,7 @@ const navigation = [
   { name: 'Candidate Search', href: '/search', icon: Users },
   { name: 'Resume Screener', href: '/screener', icon: FileSearch },
   { name: 'AI Resume Tailor', href: '/tailor', icon: Wand2 },
+  { name: 'AI Assistant', href: '/chat', icon: MessageCircle },
 ]
 
 export default function Sidebar() {

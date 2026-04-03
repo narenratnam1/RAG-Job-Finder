@@ -5,6 +5,7 @@ import { Wand2, Download, FileText, Upload, Eye, CheckCircle, X } from 'lucide-r
 import toast from 'react-hot-toast'
 import { tailorResumeWithFile, generatePDF } from '../../lib/api'
 import ResumeSelect from '../../components/ResumeSelect'
+import AgentChatPanel from '../../components/AgentChatPanel'
 
 export default function TailorPage() {
   const [jobDescription, setJobDescription] = useState('')
@@ -254,6 +255,22 @@ export default function TailorPage() {
             </>
           )}
         </button>
+      </div>
+
+      {/* Agent chat — uses OPENAI_API_KEY from the Python API .env (project root), not the browser */}
+      <div className="bg-white rounded-lg shadow-md p-6 mb-6 border border-primary-100">
+        <AgentChatPanel
+          title="Ask the assistant"
+          subtitle="Uses the same AI + tools as the rest of the app (policy search, screening tips). Your OPENAI_API_KEY is read by the FastAPI server from its .env file."
+          jobDescription={jobDescription}
+          emptyHint={
+            jobDescription.trim()
+              ? 'Ask how to align your resume with this job, what keywords to add, or how to phrase experience.'
+              : 'Add a job description above for richer answers, or ask general tailoring questions.'
+          }
+          placeholder="e.g. What bullet points should I add for this role?"
+          containerClassName="min-h-[300px] h-[380px]"
+        />
       </div>
 
       {/* Preview Section */}

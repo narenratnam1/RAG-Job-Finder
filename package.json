@@ -1,0 +1,15 @@
+{
+  "name": "rag-mcp-project",
+  "private": true,
+  "description": "Root scripts proxy to frontend/ — run npm install inside frontend first",
+  "scripts": {
+    "dev": "npm run dev --prefix frontend",
+    "dev:all": "concurrently -n next,api -c cyan,magenta \"npm run dev --prefix frontend\" \"python3 start.py\"",
+    "build": "npm run build --prefix frontend",
+    "start": "npm run start --prefix frontend",
+    "lint": "npm run lint --prefix frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

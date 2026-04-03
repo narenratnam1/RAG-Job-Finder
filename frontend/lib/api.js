@@ -1,21 +1,20 @@
 import axios from 'axios'
 
-// Use environment variable for production, fallback to localhost for development
-// NEXT_PUBLIC_API_URL should be set in Vercel/Netlify environment variables
+// Production: set NEXT_PUBLIC_API_URL to your deployed API (https://...).
+// Local dev: if unset, use same-origin proxy /api-backend (see next.config.js → BACKEND_URL, default :8000).
 const getApiBaseUrl = () => {
-  let apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-  
-  // If we are in production (not localhost), force HTTPS
-  if (!apiUrl.includes('localhost') && !apiUrl.startsWith('https://')) {
-    apiUrl = apiUrl.replace('http://', 'https://')
-    // Ensure it starts with https://
-    if (!apiUrl.startsWith('https://')) {
-      apiUrl = 'https://' + apiUrl
+  const explicit = process.env.NEXT_PUBLIC_API_URL?.trim()
+  if (explicit) {
+    let apiUrl = explicit
+    if (!apiUrl.includes('localhost') && !apiUrl.startsWith('https://')) {
+      apiUrl = apiUrl.replace('http://', 'https://')
+      if (!apiUrl.startsWith('https://')) {
+        apiUrl = 'https://' + apiUrl
+      }
     }
+    return apiUrl.replace(/\/$/, '')
   }
-  
-  // Remove trailing slash to avoid double slashes
-  return apiUrl.replace(/\/$/, '')
+  return '/api-backend'
 }
 
 const API_BASE_URL = getApiBaseUrl()
@@ -23,7 +22,9 @@ const API_BASE_URL = getApiBaseUrl()
 // Log API URL for debugging (only in browser)
 if (typeof window !== 'undefined') {
   console.log('🔗 API Base URL:', API_BASE_URL)
-  console.log('🌍 Environment:', API_BASE_URL.includes('localhost') ? 'Development' : 'Production')
+  const isLocal =
+    API_BASE_URL.includes('localhost') || API_BASE_URL.startsWith('/')
+  console.log('🌍 Environment:', isLocal ? 'Development' : 'Production')
 }
 
 const api = axios.create({
@@ -126,7 +127,7 @@ export async function getResumes() {
       error.message?.includes('Network Error') ||
       !error.response
     const hint = isNetwork
-      ? `Cannot reach API at ${API_BASE_URL}. Start the Python backend: python start.py (from project root), or set NEXT_PUBLIC_API_URL in frontend/.env.local to your deployed API.`
+      ? `Cannot reach the Python API (proxied from ${API_BASE_URL}). From the project root run: npm run dev:all (starts Next + API), or in a second terminal: python start.py (with venv active). For a remote API, set NEXT_PUBLIC_API_URL in frontend/.env.local.`
       : null
     const errorMessage =
       [detail || error.message || 'Failed to fetch resumes', hint].filter(Boolean).join(' ')
@@ -201,6 +202,28 @@ export async function generatePDF(content) {
     }
     const errorMessage = error.response?.data?.detail || error.message || 'Failed to generate PDF'
     console.error('Generate PDF error:', error.response?.data || error)
+    throw new Error(errorMessage)
+  }
+}
+
+/**
+ * Agent chat (OpenAI + MCP tools on the backend). Pass full transcript; last turn must be user.
+ * @param {Array<{ role: string, content: string }>} messages
+ * @returns {Promise<{ role: string, content: string }>}
+ */
+export async function sendAgentChat(messages) {
+  try {
+    const response = await api.post('/api/chat', { messages })
+    return response.data
+  } catch (error) {
+    const detail = error.response?.data?.detail
+    let errorMessage = error.message || 'Chat request failed'
+    if (typeof detail === 'string') {
+      errorMessage = detail
+    } else if (Array.isArray(detail) && detail.length) {
+      errorMessage = detail.map((d) => d.msg || JSON.stringify(d)).join('; ')
+    }
+    console.error('Agent chat error:', error.response?.data || error)
     throw new Error(errorMessage)
   }
 }

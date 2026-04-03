@@ -24,6 +24,9 @@ from app.services.mcp_client import (
     list_mcp_tools,
     register_mcp_http_client_app,
 )
+from app.services.agent_chat import run_agent_chat
+from app.core.config import settings
+from app.mcp_server import build_mcp, mcp_lifespan
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -66,126 +69,25 @@ class McpToolCallRequest(BaseModel):
     arguments: Dict[str, Any] | None = None
 
 
-# Helper function for candidate screening (used by both MCP tool and HTTP endpoint)
-def _screen_candidate_logic(job_description: str) -> str:
-    """
-    Core logic for screening candidates against job descriptions
-    
-    Args:
-        job_description: The job description to compare the resume against
-    
-    Returns:
-        Formatted string with resume context and comparison task
-    """
-    try:
-        # Search vector store for top 10 most relevant chunks (to get most of resume)
-        results = vector_service.search(query=job_description, k=10)
-        
-        # Format output
-        if not results:
-            return "No resume information found in the database. Please upload a resume first."
-        
-        # Build context section with retrieved chunks
-        context_parts = []
-        for i, result in enumerate(results, 1):
-            context_parts.append(
-                f"[Part {i} - Page {result['metadata'].get('page', 'N/A')}]:\n{result['text']}"
-            )
-        
-        context_section = "\n\n".join(context_parts)
-        
-        # Build final prompt
-        formatted_output = f"""CONTEXT: Here are the relevant parts of the candidate's resume:
+class ChatTurn(BaseModel):
+    """One message in the web chat transcript (user or assistant text only)."""
 
-{context_section}
-
-TASK: Compare the resume parts above against this Job Description:
-
-{job_description}"""
-        
-        return formatted_output
-    
-    except Exception as e:
-        return f"Error screening candidate: {str(e)}"
+    role: str
+    content: str
 
 
-# Initialize FastMCP (optional - for MCP tool integration)
-try:
-    from mcp.server.fastmcp import FastMCP
-    # Serve Streamable HTTP at the mount root (full URL is /mcp/ when app.mount("/mcp", ...) is used)
-    mcp = FastMCP("AgentPolicy", streamable_http_path="/")
-    
-    @mcp.tool()
-    def consult_policy_db(query: str) -> str:
-        """
-        Consult the policy database using semantic search
-        
-        Args:
-            query: The search query to find relevant policy information
-        
-        Returns:
-            Formatted string with relevant policy information
-        """
-        try:
-            # Search vector store
-            results = vector_service.search(query=query, k=3)
-            
-            # Format output
-            if not results:
-                return "No relevant policy information found."
-            
-            formatted_output = f"Found {len(results)} relevant policy documents:\n\n"
-            
-            for i, result in enumerate(results, 1):
-                formatted_output += f"--- Result {i} ---\n"
-                formatted_output += f"Source: {result['metadata'].get('source', 'Unknown')}\n"
-                formatted_output += f"Page: {result['metadata'].get('page', 'N/A')}\n"
-                formatted_output += f"Relevance Score: {1 - result['distance']:.4f}\n"
-                formatted_output += f"Content:\n{result['text']}\n\n"
-            
-            return formatted_output
-        
-        except Exception as e:
-            return f"Error querying policy database: {str(e)}"
-    
-    @mcp.tool()
-    def screen_candidate(job_description: str) -> str:
-        """
-        Screen a candidate by comparing their resume against a job description
-        
-        Args:
-            job_description: The job description to compare the resume against
-        
-        Returns:
-            Formatted string with resume context and comparison task
-        """
-        return _screen_candidate_logic(job_description)
-    
-    @mcp.tool()
-    def get_screener_instructions() -> str:
-        """
-        Get instructions for using the candidate screening tool
-        
-        Returns:
-            String with step-by-step usage instructions
-        """
-        return """1. Upload a PDF Resume. 2. In the chat, paste the Job Description and ask: "Evaluate this candidate for this role." """
-    
-    print("✓ MCP tools registered: 'consult_policy_db', 'screen_candidate', 'get_screener_instructions'")
-except ImportError:
-    print("⚠️  MCP not available - running without MCP tools")
-    mcp = None
+class ChatRequest(BaseModel):
+    """Full conversation so far; last message must be from the user."""
 
-# Streamable HTTP ASGI app + session manager (client connects to same process at /mcp)
-mcp_http_app = mcp.streamable_http_app() if mcp else None
+    messages: List[ChatTurn]
+
+
+mcp, mcp_http_app = build_mcp(vector_service)
 
 
 @asynccontextmanager
 async def app_lifespan(_app: FastAPI):
-    if mcp is not None:
-        async with mcp.session_manager.run():
-            yield
-    else:
+    async with mcp_lifespan(mcp):
         yield
 
 
@@ -985,6 +887,50 @@ async def api_mcp_call_tool(body: McpToolCallRequest):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@app.post("/api/chat")
+async def api_agent_chat(body: ChatRequest):
+    """
+    Web agent: OpenAI tool-calling with MCP tools (same as /api/mcp/call, in-process).
+    Send the full visible transcript; the last message must be from the user.
+    """
+    if mcp is None:
+        raise HTTPException(status_code=503, detail="MCP not configured")
+    if not settings.OPENAI_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="OPENAI_API_KEY not configured — required for /api/chat",
+        )
+    if not body.messages:
+        raise HTTPException(status_code=400, detail="messages must be non-empty")
+    if body.messages[-1].role != "user":
+        raise HTTPException(
+            status_code=400,
+            detail="Last message must have role 'user'",
+        )
+    for turn in body.messages:
+        if turn.role not in ("user", "assistant"):
+            raise HTTPException(
+                status_code=400,
+                detail="Each message role must be 'user' or 'assistant'",
+            )
+        if not (turn.content or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Each message must have non-empty content",
+            )
+    try:
+        conv = [
+            {"role": t.role, "content": t.content.strip()} for t in body.messages
+        ]
+        reply = await run_agent_chat(conv)
+        return {"role": "assistant", "content": reply}
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("Agent chat failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @app.get("/")
 async def root():
     """Root endpoint"""
@@ -1002,6 +948,7 @@ async def root():
             "generate_pdf": "POST /generate_pdf - Generate PDF from tailored text",
             "mcp_tools_http": "GET /api/mcp/tools - List MCP tools via client",
             "mcp_call": "POST /api/mcp/call - Call an MCP tool via client",
+            "chat": "POST /api/chat - Web agent (OpenAI + MCP tools)",
             "docs": "GET /docs - Interactive API documentation",
             "health": "GET /health - Health check"
         },
